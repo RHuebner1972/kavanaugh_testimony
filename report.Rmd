@@ -1,0 +1,260 @@
+---
+title: "Text Analysis of Kavanaugh Testimony from September 27th, 2018"
+author: "Dr. Rich Huebner"
+date: "October 5, 2018"
+output: 
+  html_document: 
+    theme: journal
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+On September 27th, 2018, Brett Kavanaugh gave his opening statement during his SCOTUS hearing. The past few days I was thinking about whether there were any patterns within Kavanaugh's testimony. Given that I recently finished a course on text mining through Coursera, I figured I'd try out my new skill on a different data set.
+
+This analysis is of Kavanaugh's opening statement, and includes frequent term analysis, a few word clouds, and sentiment analysis.
+
+## Process & Steps
+
+* Downloaded Kavanaughs testimony from 
+[https://www.washingtonpost.com/news/national/wp/2018/09/27/kavanaugh-hearing-transcript/]
+
+* Pasted testimony into a .txt file for easier processing.
+
+* Use the R package "tm" which contains some text mining functions.
+
+* Create a corpus and a term document matrix (tdm). 
+
+* Display frequencies of word usage during his opening statement.
+
+* Display a word cloud of Kavanaugh's opening statement.
+
+* Complete a sentiment analysis.
+
+I used the following packages:  tm, wordcloud, ggplot2, RWeka, and stringi
+
+```{r load_libraries, echo=FALSE, message=FALSE, error=FALSE }
+library(tm)
+library(wordcloud)
+library(ggplot2)
+library(RWeka)
+library(stringi)
+library(data.table)
+```
+
+## Creation of a Corpus
+
+A corpus is a collection of text or documents. The basic process is to load in the text from a file, and then cleanse the text and convert it into a corpus. I used the {tm} package for creating the corpus.  
+
+Steps:
+
+1. Set seed
+2. Set working directory
+3. Read all lines from Kavanaugh's opening statement.
+4. Build a corpus and cleanse it.
+   Cleaning involves removing punctuation, conversion to all lower case, remove numbers, etc.
+
+
+```{r read_data_and_create_corpus}
+set.seed(2972) # for repeatability
+
+# Set working directory for Rich's machine.
+setwd("D:/Data/kavanaugh_testimony")
+
+con <- file("kav_opening.txt", "rb")
+lines <- readLines(con, encoding = "UTF-8", skipNul = TRUE)
+close(con)
+
+data <- gsub("\\b[A-Z a-z 0-9._ - ]*[@](.*?)[.]{1,3} \\b", "", lines)
+
+corpus <- VCorpus(VectorSource(data))
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, removePunctuation)
+
+toSpace <- content_transformer(function(x, pattern) gsub(pattern, "", x))
+corpus <- tm_map(corpus, toSpace, "@[^\\s]+")
+corpus <- tm_map(corpus, toSpace, "[^ a-zA-Z&-]|[&-]{2,}")
+corpus <- tm_map(corpus, toSpace, "(f|ht)tp(s?)://(.*)[.][a-z]+")
+corpus <- tm_map(corpus, toSpace, "[^\x01-\x7F]") 
+```
+
+
+## Get the word counts/frequencies
+
+Once we have a corpus created, we can generate the anagrams. Anagrams, or n-Grams are essentially word combinations. I focused on bigrams, trigrams, and quadgrams, which are 2- and 3-, and 4-word combinations respectively.
+
+Steps:
+
+1. Create a function that generates the frequency list of the nGrams (unigrams, bigrams, trigrams, and quadgrams)
+2. Create the nGram tokenizer using the RWeka package (functions NGramTokenizer and Weka_control)
+3. When creating nGrams, we also remove any sparse terms -- or very low occuring frequency terms.
+4. Create the term document matrix (tdm). The tdm ultimately contains a listing (matrix!) of all the tri-grams or bigrams. 
+
+```{r Tokenize}
+counts <- function(t) {
+  f <- sort(rowSums(as.matrix(t)), decreasing = TRUE)
+  return(data.frame(word = names(f), freq = f))
+}
+bi_gram <- function(z) NGramTokenizer(z, Weka_control(min = 2, max = 2))
+tri_gram <- function(z) NGramTokenizer(z, Weka_control(min = 3, max = 3))
+quad_gram <- function(z) NGramTokenizer(z, Weka_control(min = 4, max = 4))
+
+freq_uni <- counts(removeSparseTerms(TermDocumentMatrix(corpus), 0.99))
+freq_bi <- counts(removeSparseTerms(TermDocumentMatrix(corpus, control = list(tokenize = bi_gram)), 0.999))
+freq_tri <- counts(removeSparseTerms(TermDocumentMatrix(corpus, control = list(tokenize = tri_gram)), 0.999))
+freq_quad <- counts(removeSparseTerms(TermDocumentMatrix(corpus, control = list(tokenize = quad_gram)), 0.999))
+
+tdm_unigram <- removeSparseTerms(TermDocumentMatrix(corpus), 0.99)
+unigram_levels <- unique(tdm_unigram$dimnames$Terms)
+tdm_bigram <- removeSparseTerms(TermDocumentMatrix(corpus, control = list(tokenize = bi_gram)), 0.99)
+tdm_trigram <- removeSparseTerms(TermDocumentMatrix(corpus, control = list(tokenize = tri_gram)), 0.999)
+```
+
+## Display Frequencies
+
+```{r Display_Frequencies}
+gimme_Plot <- function(data, label, co) {
+  ggplot(data[1:20,], aes(reorder(word, -freq), freq)) +
+    labs(x = label, y = "Count/Frequency") +
+    theme(axis.text.x = element_text(angle = 90, size = 10, hjust = 1)) +
+    geom_bar(stat = "identity", fill = I(co)) }
+
+gimme_Plot(freq_uni, "Unigrams", "Red")  
+gimme_Plot(freq_bi, "Bigrams", "Purple")
+gimme_Plot(freq_tri, "Trigrams", "Blue")
+gimme_Plot(freq_quad, "Quadgrams", "Gray")
+
+```
+
+
+### Top Words
+
+It would seem that by examining the trigrams, the most frequently occurring phrases are:
+
+### Top Word from Unigram
+
+The top word is:  **`r freq_uni$word[1]`**. Its frequency was `r freq_uni$freq[1] `. 
+
+### Top Words from Bigrams
+
+For bigrams, the top bigram is: **`r freq_bi$word[1] `**. Its frequency was `r freq_bi$freq[1] `.
+
+### Top Words from Trigrams
+
+The top 3 trigrams are:
+
+For trigrams, the top trigram is: **`r freq_tri$word[1]`.** Its frequency was `r freq_tri$freq[1] `.
+
+The 2nd most frequent occurring trigram is **`r freq_tri$word[2]`** and its frequency is `r freq_tri$freq[2]`.
+
+Finally, the 3rd most occurring trigram is **`r freq_tri$word[3]`** and its frequency is `r freq_tri$freq[3]`.
+
+### Quadgram
+
+The most frequently occurring quadgram was **`r freq_quad$word[1]`** and its frequency is `r freq_quad$freq[1]`.
+
+
+# Frequent Terms Listing
+
+Here's another look at frequent terms used during the opening statement...
+
+```{r Frequent_Terms}
+fft <- findFreqTerms(tdm_unigram, 4, 5)
+fft
+
+```
+
+
+## Word Clouds
+
+This word cloud could be enlightening.
+
+```{r Wordcloud, warning=FALSE}
+wordcloud(words = freq_bi$word, freq = freq_bi$freq, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.25, 
+          colors=brewer.pal(8, "Set1"))
+
+```
+
+Let's also do a wordcloud for the trigrams.
+
+```{r Wordcloud2, warning=FALSE}
+wordcloud(words = freq_tri$word, freq = freq_tri$freq, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.45, 
+          colors=brewer.pal(8, "Dark2"))
+
+```
+
+
+## Sentiment Analysis
+
+```{r Sentiment}
+library(sentimentr)
+sent_terms <- extract_sentiment_terms(lines)
+sent_df <- sentiment(lines)
+
+```
+
+### Plot of Sentiment
+
+This next plot uses Mathhew Jocker's syuzhet package to calculate the smoothed sentiment across the duration of the text. 
+
+On the y axis, you'll notice the term "Emotional Valence."
+From WikiPedia, Emotional Valence, as used in psychology, especially in discussing emotions, means the intrinsic attractiveness/"good"-ness (positive valence) or averseness/"bad"-ness (negative valence) of an event, object, or situation.  The term also characterizes and categorizes specific emotions. For example, emotions popularly referred to as "negative", such as anger and fear, have negative valence. Joy has positive valence. Positively valenced emotions are evoked by positively valenced events, objects, or situations. The term is also used to describe the hedonic tone of feelings, affect, certain behaviors (for example, approach and avoidance), goal attainment or nonattainment, and conformity with or violation of norms. Ambivalence can be viewed as conflict between positive and negative valence-carriers.
+
+```{r Smoothed_Sentiment}
+g <- plot(sent_df, transformation.function = syuzhet::get_dct_transform)
+print(g)
+```
+
+Additional plot of sentiment...
+
+```{r}
+sdf <- as.data.frame(sent_df)
+h <- ggplot(as.data.frame(sdf), aes(x = sdf$word_count, y= sdf$sentiment, color = "blue")) + geom_bar(stat = "identity", fill = I("blue"))
+print(h)
+
+```
+
+And finally, the percentage of various emotions displayed during Kavanaugh's opening statement.
+
+```{r Sentiment_Graphs, message=FALSE, warning=FALSE}
+library(syuzhet)
+
+nrc_data <- get_nrc_sentiment(lines)
+nrc_values <- get_nrc_values(lines, language="english")
+nrc_values
+
+barplot(
+  sort(colSums(prop.table(nrc_data[, 1:8]))), 
+  horiz = TRUE, 
+  cex.names = 0.8, 
+  las = 1, 
+  main = "Emotions in Kavanaugh Opening Statement", xlab="Percentage"
+)
+
+
+barplot(
+  sort(colSums(prop.table(nrc_data[, 9:10]))), 
+  horiz = TRUE, 
+  cex.names = 0.8, 
+  las = 1, 
+  main = "Positive vs Negative Sentiment", xlab="Percentage"
+)
+
+
+```
+
+The results of the above sentiment analysis are quite interesting. As we watched the opening statement and testimony from Kavanaugh on Sept. 28th, it was apparent that he seemed angry, fearful, surprised, sad, and disgusted.  HOWEVER, it is interesting that the sentiment analysis revealed higher frequencies of trust, anticipation, and joy throughout his opening statement. 
+
+While the sentiment analysis can only really determine some basic feelings of Dr. Kavanaugh from reading through the words, we know that this analysis cannot understanding the tone or facial expressions during his testimony to the Senate. 
+
+Perhaps further analysis on Brett Kavanaugh's testimony would reveal some other interesting insights.
+
+
+~ Rich Huebner, PhD
+
